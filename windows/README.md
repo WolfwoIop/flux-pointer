@@ -22,11 +22,13 @@ from this repository.
 - Left-click creates a starburst and rotating shockwave.
 - Right-click creates a larger alternate rupture.
 - The overlay is click-through, so it does not interfere with normal input.
+- The normal Windows cursor is hidden by default so the Flux field becomes the
+  pointer. You can restore it from the tray menu at any time.
 - It does not use the network, collect data, or require admin rights.
 
-The regular Windows pointer remains visible for dependable clicking. Windows
-secure screens and some exclusive fullscreen games do not allow ordinary apps
-to draw overlays.
+Pausing or exiting Flux Pointer automatically restores the normal Windows
+cursor. Windows secure screens and some exclusive fullscreen games do not allow
+ordinary apps to draw overlays.
 
 ## Build from source
 

@@ -16,8 +16,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Flux Pointer")]
 [assembly: AssemblyProduct("Flux Pointer for Windows")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 WolfwoIop")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace FluxPointer
 {
@@ -38,9 +38,26 @@ namespace FluxPointer
                     return;
                 }
 
+                SystemCursorController.Restore();
                 NativeMethods.SetProcessDPIAware();
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs eventArgs)
+                {
+                    SystemCursorController.Restore();
+                    MessageBox.Show("Flux Pointer stopped unexpectedly, so the normal Windows cursor was restored.\n\n" +
+                        eventArgs.Exception.Message, "Flux Pointer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    Application.Exit();
+                };
+                AppDomain.CurrentDomain.UnhandledException += delegate
+                {
+                    SystemCursorController.Restore();
+                };
+                AppDomain.CurrentDomain.ProcessExit += delegate
+                {
+                    SystemCursorController.Restore();
+                };
                 Application.Run(new FluxApplicationContext());
                 GC.KeepAlive(mutex);
             }
@@ -55,6 +72,7 @@ namespace FluxPointer
         private readonly FluxOverlay overlay;
         private readonly NotifyIcon trayIcon;
         private readonly ToolStripMenuItem enabledItem;
+        private readonly ToolStripMenuItem hideCursorItem;
         private readonly ToolStripMenuItem startupItem;
         private Icon ownedIcon;
 
@@ -67,12 +85,17 @@ namespace FluxPointer
             enabledItem.Checked = true;
             enabledItem.CheckOnClick = false;
 
+            hideCursorItem = new ToolStripMenuItem("Hide normal Windows cursor", null, ToggleNormalCursor);
+            hideCursorItem.Checked = SystemCursorController.Hide();
+            hideCursorItem.CheckOnClick = false;
+
             startupItem = new ToolStripMenuItem("Start with Windows", null, ToggleStartup);
             startupItem.Checked = IsStartupEnabled();
             startupItem.CheckOnClick = false;
 
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add(enabledItem);
+            menu.Items.Add(hideCursorItem);
             menu.Items.Add(startupItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Open web demo", null, OpenDemo));
@@ -97,9 +120,24 @@ namespace FluxPointer
         {
             overlay.EffectsEnabled = !overlay.EffectsEnabled;
             enabledItem.Checked = overlay.EffectsEnabled;
+            if (overlay.EffectsEnabled && hideCursorItem.Checked)
+                hideCursorItem.Checked = SystemCursorController.Hide();
+            else
+                SystemCursorController.Restore();
             trayIcon.Text = overlay.EffectsEnabled
                 ? "Flux Pointer — effects enabled"
                 : "Flux Pointer — effects paused";
+        }
+
+        private void ToggleNormalCursor(object sender, EventArgs eventArgs)
+        {
+            bool shouldHide = !hideCursorItem.Checked;
+            hideCursorItem.Checked = shouldHide && overlay.EffectsEnabled
+                ? SystemCursorController.Hide()
+                : shouldHide;
+
+            if (!shouldHide || !overlay.EffectsEnabled)
+                SystemCursorController.Restore();
         }
 
         private void ToggleStartup(object sender, EventArgs eventArgs)
@@ -166,13 +204,15 @@ namespace FluxPointer
             MessageBox.Show(
                 "FLUX POINTER / WINDOWS\n\n" +
                 "A living pointer field shaped by speed, direction, time, and clicks.\n\n" +
+                "The normal Windows cursor is hidden while the Flux field is active.\n\n" +
                 "No network connection, installer, or administrator access is required.\n\n" +
-                "Version 1.0.0",
+                "Version 1.1.0",
                 "About Flux Pointer", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void ExitApplication(object sender, EventArgs eventArgs)
         {
+            SystemCursorController.Restore();
             trayIcon.Visible = false;
             overlay.Close();
             ExitThread();
@@ -182,6 +222,7 @@ namespace FluxPointer
         {
             if (disposing)
             {
+                SystemCursorController.Restore();
                 trayIcon.Dispose();
                 overlay.Dispose();
                 if (ownedIcon != null)
@@ -822,6 +863,57 @@ namespace FluxPointer
         public bool Alternate;
     }
 
+    internal static class SystemCursorController
+    {
+        private static readonly uint[] CursorIds =
+        {
+            32512, 32513, 32514, 32515, 32516,
+            32640, 32641, 32642, 32643, 32644,
+            32645, 32646, 32648, 32649, 32650,
+            32651, 32671, 32672
+        };
+
+        private static bool hidden;
+
+        internal static bool Hide()
+        {
+            if (hidden)
+                return true;
+
+            byte[] andPlane = new byte[128];
+            byte[] xorPlane = new byte[128];
+            for (int index = 0; index < andPlane.Length; index++)
+                andPlane[index] = 0xFF;
+
+            bool normalCursorHidden = false;
+            for (int index = 0; index < CursorIds.Length; index++)
+            {
+                IntPtr cursor = NativeMethods.CreateCursor(IntPtr.Zero, 0, 0, 32, 32,
+                    andPlane, xorPlane);
+                if (cursor == IntPtr.Zero)
+                    continue;
+
+                bool replaced = NativeMethods.SetSystemCursor(cursor, CursorIds[index]);
+                if (!replaced)
+                    NativeMethods.DestroyCursor(cursor);
+                else if (CursorIds[index] == NativeMethods.OCR_NORMAL)
+                    normalCursorHidden = true;
+            }
+
+            hidden = normalCursorHidden;
+            if (!hidden)
+                Restore();
+            return hidden;
+        }
+
+        internal static void Restore()
+        {
+            NativeMethods.SystemParametersInfo(NativeMethods.SPI_SETCURSORS, 0,
+                IntPtr.Zero, 0);
+            hidden = false;
+        }
+    }
+
     internal static class NativeMethods
     {
         internal const int WS_EX_LAYERED = 0x00080000;
@@ -843,6 +935,8 @@ namespace FluxPointer
         internal const uint RIDEV_INPUTSINK = 0x00000100;
         internal const ushort RI_MOUSE_LEFT_BUTTON_DOWN = 0x0001;
         internal const ushort RI_MOUSE_RIGHT_BUTTON_DOWN = 0x0004;
+        internal const uint SPI_SETCURSORS = 0x0057;
+        internal const uint OCR_NORMAL = 32512;
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct POINT
@@ -953,5 +1047,22 @@ namespace FluxPointer
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool DestroyIcon(IntPtr iconHandle);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern IntPtr CreateCursor(IntPtr instance, int hotSpotX, int hotSpotY,
+            int width, int height, byte[] andPlane, byte[] xorPlane);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetSystemCursor(IntPtr cursor, uint cursorId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool DestroyCursor(IntPtr cursor);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SystemParametersInfo(uint action, uint parameter,
+            IntPtr data, uint updateFlags);
     }
 }
