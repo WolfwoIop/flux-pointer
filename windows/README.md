@@ -24,6 +24,8 @@ from this repository.
 - The overlay is click-through, so it does not interfere with normal input.
 - The normal Windows cursor is hidden by default so the Flux field becomes the
   pointer. You can restore it from the tray menu at any time.
+- After three seconds without movement or clicks, the Flux pointer fades out
+  completely. Moving or clicking wakes it immediately.
 - It does not use the network, collect data, or require admin rights.
 
 Pausing or exiting Flux Pointer automatically restores the normal Windows

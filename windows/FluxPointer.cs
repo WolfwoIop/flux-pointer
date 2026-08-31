@@ -16,8 +16,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Flux Pointer")]
 [assembly: AssemblyProduct("Flux Pointer for Windows")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 WolfwoIop")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 namespace FluxPointer
 {
@@ -206,7 +206,7 @@ namespace FluxPointer
                 "A living pointer field shaped by speed, direction, time, and clicks.\n\n" +
                 "The normal Windows cursor is hidden while the Flux field is active.\n\n" +
                 "No network connection, installer, or administrator access is required.\n\n" +
-                "Version 1.1.0",
+                "Version 1.2.0",
                 "About Flux Pointer", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -274,6 +274,7 @@ namespace FluxPointer
     internal sealed class FluxOverlay : Form
     {
         private const int MaxParticles = 220;
+        private const long IdleDelayMilliseconds = 3000;
         private readonly System.Windows.Forms.Timer frameTimer;
         private readonly Stopwatch clock;
         private readonly Random random;
@@ -287,6 +288,8 @@ namespace FluxPointer
         private bool pendingRightClick;
         private bool effectsEnabled;
         private float clickFlash;
+        private float pointerOpacity;
+        private long lastActivityTime;
         private long previousFrameTime;
 
         public FluxOverlay()
@@ -309,6 +312,8 @@ namespace FluxPointer
             eased = target;
 
             effectsEnabled = true;
+            pointerOpacity = 1.0f;
+            lastActivityTime = clock.ElapsedMilliseconds;
             frameTimer = new System.Windows.Forms.Timer();
             frameTimer.Interval = 16;
             frameTimer.Tick += OnFrame;
@@ -326,6 +331,9 @@ namespace FluxPointer
                     previousTarget = ReadCursor();
                     target = previousTarget;
                     eased = target;
+                    pointerOpacity = 1.0f;
+                    lastActivityTime = clock.ElapsedMilliseconds;
+                    previousFrameTime = 0;
                     Show();
                 }
                 else
@@ -422,6 +430,9 @@ namespace FluxPointer
             float dy = target.Y - previousTarget.Y;
             float movement = Distance(previousTarget, target);
 
+            if (movement > 0.6f)
+                lastActivityTime = now;
+
             if (movement > 1.25f)
                 AddTrail(previousTarget, target, dx, dy, movement, now);
 
@@ -430,6 +441,7 @@ namespace FluxPointer
 
             if (pendingLeftClick || pendingRightClick)
             {
+                lastActivityTime = now;
                 AddBurst(target, now, pendingRightClick);
                 pendingLeftClick = false;
                 pendingRightClick = false;
@@ -439,6 +451,21 @@ namespace FluxPointer
             UpdateParticles(frameScale);
             UpdateRipples(frameScale);
             clickFlash = Math.Max(0.0f, clickFlash - 0.055f * frameScale);
+
+            if (now - lastActivityTime < IdleDelayMilliseconds)
+                pointerOpacity = Math.Min(1.0f, pointerOpacity + 0.18f * frameScale);
+            else
+                pointerOpacity = Math.Max(0.0f, pointerOpacity - 0.045f * frameScale);
+
+            if (pointerOpacity <= 0.001f && particles.Count == 0 && ripples.Count == 0)
+            {
+                if (Visible)
+                    Hide();
+                return;
+            }
+
+            if (!Visible)
+                Show();
 
             Render(now, dx, dy);
         }
@@ -673,6 +700,10 @@ namespace FluxPointer
 
         private void DrawPointer(Graphics graphics, Rectangle bounds, long now, float dx, float dy)
         {
+            float visibility = Clamp01(pointerOpacity);
+            if (visibility <= 0.001f)
+                return;
+
             float x = eased.X - bounds.Left;
             float y = eased.Y - bounds.Top;
             float speed = (float)Math.Sqrt(dx * dx + dy * dy);
@@ -690,12 +721,12 @@ namespace FluxPointer
             {
                 float radius = (17.0f + glow * 3.4f) * pulse;
                 using (Pen glowPen = new Pen(Hsl(hue + glow * 8.0f, 1.0f, 0.66f,
-                    0.045f * (5 - glow)), 2.6f + glow * 1.5f))
+                    0.045f * (5 - glow) * visibility), 2.6f + glow * 1.5f))
                     graphics.DrawEllipse(glowPen, -radius, -radius, radius * 2.0f, radius * 2.0f);
             }
 
-            using (Pen shell = new Pen(Hsl(hue, 1.0f, 0.73f, 0.94f), 1.8f))
-            using (Pen inner = new Pen(Hsl(hue + 72.0f, 1.0f, 0.78f, 0.78f), 1.1f))
+            using (Pen shell = new Pen(Hsl(hue, 1.0f, 0.73f, 0.94f * visibility), 1.8f))
+            using (Pen inner = new Pen(Hsl(hue + 72.0f, 1.0f, 0.78f, 0.78f * visibility), 1.1f))
             {
                 graphics.DrawArc(shell, -19.0f * pulse, -19.0f * pulse, 38.0f * pulse,
                     38.0f * pulse, -38.0f, 238.0f);
@@ -708,23 +739,24 @@ namespace FluxPointer
             saved = graphics.Save();
             graphics.TranslateTransform(x, y);
             graphics.RotateTransform(orbitAngle);
-            using (Pen orbit = new Pen(Hsl(hue + 155.0f, 1.0f, 0.72f, 0.68f), 1.1f))
+            using (Pen orbit = new Pen(Hsl(hue + 155.0f, 1.0f, 0.72f, 0.68f * visibility), 1.1f))
             {
                 orbit.DashPattern = new float[] { 2.0f, 4.5f };
                 graphics.DrawEllipse(orbit, -27.0f, -15.0f, 54.0f, 30.0f);
             }
-            using (SolidBrush satellite = new SolidBrush(Hsl(hue + 190.0f, 1.0f, 0.78f, 0.95f)))
+            using (SolidBrush satellite = new SolidBrush(Hsl(hue + 190.0f, 1.0f, 0.78f, 0.95f * visibility)))
                 graphics.FillEllipse(satellite, 24.0f, -2.2f, 4.4f, 4.4f);
             graphics.Restore(saved);
 
             float diamondSize = 4.2f + clickFlash * 4.5f;
             DrawStar(graphics, x, y, diamondSize, (float)(now * 0.003),
-                Hsl(hue + 35.0f, 1.0f, 0.80f, 0.96f));
+                Hsl(hue + 35.0f, 1.0f, 0.80f, 0.96f * visibility));
 
             if (clickFlash > 0.0f)
             {
                 float flashRadius = 9.0f + (1.0f - clickFlash) * 24.0f;
-                using (Pen flash = new Pen(Hsl(hue + 90.0f, 1.0f, 0.82f, clickFlash * 0.9f),
+                using (Pen flash = new Pen(Hsl(hue + 90.0f, 1.0f, 0.82f,
+                    clickFlash * 0.9f * visibility),
                     1.0f + clickFlash * 2.5f))
                     graphics.DrawEllipse(flash, x - flashRadius, y - flashRadius,
                         flashRadius * 2.0f, flashRadius * 2.0f);
