@@ -4,6 +4,16 @@ A dependency-free, shape-shifting web cursor with a chromatic particle trail,
 velocity-reactive movement, interactive hover states, and a starburst click
 animation.
 
+## Windows desktop app
+
+Want the effect outside the browser? Download `FluxPointer.exe` from the latest
+GitHub release. It adds the animated Flux halo, particle trail, and click
+rupture across the Windows desktop and ordinary apps. No installer or
+administrator access is required.
+
+See [`windows/README.md`](windows/README.md) for controls, compatibility, source,
+and build instructions.
+
 ## Try the demo
 
 Serve this folder with any static web server:
