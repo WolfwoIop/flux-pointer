@@ -16,8 +16,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Flux Pointer")]
 [assembly: AssemblyProduct("Flux Pointer for Windows")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 WolfwoIop")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
 
 namespace FluxPointer
 {
@@ -290,7 +290,7 @@ namespace FluxPointer
                 "A living pointer field shaped by speed, direction, time, and clicks.\n\n" +
                 "The normal Windows cursor is hidden while the Flux field is active.\n\n" +
                 "No network connection, installer, or administrator access is required.\n\n" +
-                "Version 1.3.0",
+                "Version 1.4.0",
                 "About Flux Pointer", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -421,6 +421,7 @@ namespace FluxPointer
                     lastActivityTime = clock.ElapsedMilliseconds;
                     previousFrameTime = 0;
                     Show();
+                    EnsureTopMost();
                 }
                 else
                 {
@@ -475,6 +476,7 @@ namespace FluxPointer
                 parameters.ExStyle |= NativeMethods.WS_EX_TRANSPARENT;
                 parameters.ExStyle |= NativeMethods.WS_EX_TOOLWINDOW;
                 parameters.ExStyle |= NativeMethods.WS_EX_NOACTIVATE;
+                parameters.ExStyle |= NativeMethods.WS_EX_TOPMOST;
                 return parameters;
             }
         }
@@ -566,7 +568,16 @@ namespace FluxPointer
             if (!Visible)
                 Show();
 
+            EnsureTopMost();
+
             Render(now, dx, dy);
+        }
+
+        private void EnsureTopMost()
+        {
+            NativeMethods.SetWindowPos(Handle, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE |
+                NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
         }
 
         private static PointF ReadCursor()
@@ -755,24 +766,155 @@ namespace FluxPointer
                 float x = particle.X - bounds.Left;
                 float y = particle.Y - bounds.Top;
 
-                if (particle.Burst)
-                {
+                if (skin == FluxSkin.AcidGhost)
+                    DrawGhostParticle(graphics, bounds, particle, x, y, alpha, saturation);
+                else if (skin == FluxSkin.SolarFlare)
+                    DrawSolarParticle(graphics, bounds, particle, x, y, alpha, saturation);
+                else if (skin == FluxSkin.IceSignal)
+                    DrawIceParticle(graphics, bounds, particle, x, y, alpha, saturation);
+                else if (skin == FluxSkin.MonoPulse)
+                    DrawMonoParticle(graphics, bounds, particle, x, y, alpha);
+                else if (particle.Burst)
                     DrawStar(graphics, x, y, particle.Size, particle.Rotation,
                         Hsl(particle.Hue, saturation, 0.72f, alpha * 0.95f));
+                else
+                    DrawSpectrumTrail(graphics, bounds, particle, x, y, alpha, saturation);
+            }
+        }
+
+        private static void DrawSpectrumTrail(Graphics graphics, Rectangle bounds,
+            Particle particle, float x, float y, float alpha, float saturation)
+        {
+            using (Pen line = new Pen(Hsl(particle.Hue, saturation, 0.68f, alpha * 0.50f),
+                Math.Max(0.8f, particle.Size)))
+            using (SolidBrush dot = new SolidBrush(Hsl(particle.Hue, saturation, 0.78f, alpha)))
+            {
+                line.StartCap = LineCap.Round;
+                line.EndCap = LineCap.Round;
+                graphics.DrawLine(line, particle.PreviousX - bounds.Left,
+                    particle.PreviousY - bounds.Top, x, y);
+                float radius = Math.Max(0.5f, particle.Size * alpha);
+                graphics.FillEllipse(dot, x - radius, y - radius, radius * 2.0f, radius * 2.0f);
+            }
+        }
+
+        private static void DrawGhostParticle(Graphics graphics, Rectangle bounds,
+            Particle particle, float x, float y, float alpha, float saturation)
+        {
+            float radius = particle.Size * (particle.Burst ? 2.8f : 1.8f);
+            using (Pen ghost = new Pen(Hsl(particle.Hue, saturation, 0.70f,
+                alpha * (particle.Burst ? 0.92f : 0.65f)), Math.Max(0.8f, particle.Size * 0.65f)))
+            {
+                ghost.DashPattern = new float[] { 1.0f, 2.2f };
+                if (!particle.Burst)
+                    graphics.DrawLine(ghost, particle.PreviousX - bounds.Left,
+                        particle.PreviousY - bounds.Top, x, y);
+                graphics.DrawArc(ghost, x - radius, y - radius, radius * 2.0f,
+                    radius * 2.0f, particle.Rotation * 57.29578f, particle.Burst ? 245.0f : 175.0f);
+            }
+        }
+
+        private static void DrawSolarParticle(Graphics graphics, Rectangle bounds,
+            Particle particle, float x, float y, float alpha, float saturation)
+        {
+            using (Pen ember = new Pen(Hsl(particle.Hue, saturation, 0.63f,
+                alpha * 0.75f), Math.Max(1.0f, particle.Size * 1.35f)))
+            {
+                ember.StartCap = LineCap.Round;
+                ember.EndCap = LineCap.Round;
+                if (!particle.Burst)
+                {
+                    graphics.DrawLine(ember, particle.PreviousX - bounds.Left,
+                        particle.PreviousY - bounds.Top, x, y);
+                    using (SolidBrush heat = new SolidBrush(Hsl(particle.Hue + 18.0f,
+                        saturation, 0.82f, alpha)))
+                    {
+                        float radius = particle.Size * 1.25f;
+                        graphics.FillEllipse(heat, x - radius, y - radius,
+                            radius * 2.0f, radius * 2.0f);
+                    }
                 }
                 else
                 {
-                    using (Pen line = new Pen(Hsl(particle.Hue, saturation, 0.68f, alpha * 0.50f),
-                        Math.Max(0.8f, particle.Size)))
-                    using (SolidBrush dot = new SolidBrush(Hsl(particle.Hue, saturation, 0.78f, alpha)))
+                    GraphicsState saved = graphics.Save();
+                    graphics.TranslateTransform(x, y);
+                    graphics.RotateTransform(particle.Rotation * 57.29578f);
+                    PointF[] spark =
                     {
-                        line.StartCap = LineCap.Round;
-                        line.EndCap = LineCap.Round;
-                        graphics.DrawLine(line, particle.PreviousX - bounds.Left,
-                            particle.PreviousY - bounds.Top, x, y);
-                        float radius = Math.Max(0.5f, particle.Size * alpha);
-                        graphics.FillEllipse(dot, x - radius, y - radius, radius * 2.0f, radius * 2.0f);
+                        new PointF(particle.Size * 4.6f, 0),
+                        new PointF(-particle.Size * 1.4f, particle.Size * 0.9f),
+                        new PointF(-particle.Size * 0.4f, 0),
+                        new PointF(-particle.Size * 1.4f, -particle.Size * 0.9f)
+                    };
+                    using (SolidBrush flame = new SolidBrush(Hsl(particle.Hue + 16.0f,
+                        saturation, 0.76f, alpha * 0.96f)))
+                        graphics.FillPolygon(flame, spark);
+                    graphics.Restore(saved);
+                }
+            }
+        }
+
+        private static void DrawIceParticle(Graphics graphics, Rectangle bounds,
+            Particle particle, float x, float y, float alpha, float saturation)
+        {
+            using (Pen ice = new Pen(Hsl(particle.Hue, saturation, 0.82f,
+                alpha * 0.90f), Math.Max(0.8f, particle.Size * 0.55f)))
+            {
+                if (!particle.Burst)
+                {
+                    graphics.DrawLine(ice, particle.PreviousX - bounds.Left,
+                        particle.PreviousY - bounds.Top, x, y);
+                    float radius = particle.Size * 1.7f;
+                    PointF[] diamond =
+                    {
+                        new PointF(x, y - radius), new PointF(x + radius, y),
+                        new PointF(x, y + radius), new PointF(x - radius, y)
+                    };
+                    graphics.DrawPolygon(ice, diamond);
+                }
+                else
+                {
+                    GraphicsState saved = graphics.Save();
+                    graphics.TranslateTransform(x, y);
+                    graphics.RotateTransform(particle.Rotation * 57.29578f);
+                    float radius = particle.Size * 3.0f;
+                    for (int arm = 0; arm < 6; arm++)
+                    {
+                        double angle = Math.PI * arm / 3.0;
+                        graphics.DrawLine(ice, 0, 0, (float)Math.Cos(angle) * radius,
+                            (float)Math.Sin(angle) * radius);
                     }
+                    graphics.Restore(saved);
+                }
+            }
+        }
+
+        private static void DrawMonoParticle(Graphics graphics, Rectangle bounds,
+            Particle particle, float x, float y, float alpha)
+        {
+            using (Pen shadow = new Pen(Color.FromArgb((int)(alpha * 150), 0, 0, 0),
+                particle.Burst ? 3.2f : 2.4f))
+            using (Pen white = new Pen(Color.FromArgb((int)(alpha * 245), 255, 255, 255),
+                particle.Burst ? 1.1f : 0.9f))
+            {
+                if (!particle.Burst)
+                {
+                    graphics.DrawLine(shadow, particle.PreviousX - bounds.Left,
+                        particle.PreviousY - bounds.Top, x, y);
+                    graphics.DrawLine(white, particle.PreviousX - bounds.Left,
+                        particle.PreviousY - bounds.Top, x, y);
+                    float side = Math.Max(1.5f, particle.Size * 1.8f);
+                    using (SolidBrush block = new SolidBrush(Color.FromArgb((int)(alpha * 245),
+                        255, 255, 255)))
+                        graphics.FillRectangle(block, x - side / 2.0f, y - side / 2.0f, side, side);
+                }
+                else
+                {
+                    float radius = particle.Size * 3.0f;
+                    graphics.DrawLine(shadow, x - radius, y, x + radius, y);
+                    graphics.DrawLine(shadow, x, y - radius, x, y + radius);
+                    graphics.DrawLine(white, x - radius, y, x + radius, y);
+                    graphics.DrawLine(white, x, y - radius, x, y + radius);
                 }
             }
         }
@@ -791,13 +933,50 @@ namespace FluxPointer
                     saturation, 0.72f, alpha),
                     Math.Max(1.0f, 2.2f - progress)))
                 {
-                    pen.DashStyle = DashStyle.Custom;
-                    pen.DashPattern = ripple.Alternate
-                        ? new float[] { 1.0f, 3.0f, 6.0f, 3.0f }
-                        : new float[] { 4.0f + progress * 5.0f, 5.5f };
                     pen.DashOffset = (float)(-now * 0.025);
-                    graphics.DrawEllipse(pen, ripple.X - bounds.Left - radius,
-                        ripple.Y - bounds.Top - radius, radius * 2.0f, radius * 2.0f);
+                    float x = ripple.X - bounds.Left;
+                    float y = ripple.Y - bounds.Top;
+                    if (skin == FluxSkin.AcidGhost)
+                    {
+                        pen.DashPattern = new float[] { 1.0f, 2.2f };
+                        graphics.DrawArc(pen, x - radius, y - radius, radius * 2.0f,
+                            radius * 2.0f, -30.0f + progress * 120.0f, 125.0f);
+                        graphics.DrawArc(pen, x - radius, y - radius, radius * 2.0f,
+                            radius * 2.0f, 155.0f + progress * 90.0f, 100.0f);
+                    }
+                    else if (skin == FluxSkin.SolarFlare)
+                    {
+                        pen.DashStyle = DashStyle.Solid;
+                        graphics.DrawEllipse(pen, x - radius, y - radius,
+                            radius * 2.0f, radius * 2.0f);
+                        float inner = radius * 0.76f;
+                        graphics.DrawEllipse(pen, x - inner, y - inner,
+                            inner * 2.0f, inner * 2.0f);
+                    }
+                    else if (skin == FluxSkin.IceSignal)
+                    {
+                        pen.DashPattern = new float[] { 3.0f, 3.0f };
+                        PointF[] diamond =
+                        {
+                            new PointF(x, y - radius), new PointF(x + radius, y),
+                            new PointF(x, y + radius), new PointF(x - radius, y)
+                        };
+                        graphics.DrawPolygon(pen, diamond);
+                    }
+                    else if (skin == FluxSkin.MonoPulse)
+                    {
+                        pen.DashPattern = new float[] { 1.0f, 5.0f };
+                        graphics.DrawRectangle(pen, x - radius, y - radius,
+                            radius * 2.0f, radius * 2.0f);
+                    }
+                    else
+                    {
+                        pen.DashPattern = ripple.Alternate
+                            ? new float[] { 1.0f, 3.0f, 6.0f, 3.0f }
+                            : new float[] { 4.0f + progress * 5.0f, 5.5f };
+                        graphics.DrawEllipse(pen, x - radius, y - radius,
+                            radius * 2.0f, radius * 2.0f);
+                    }
                 }
             }
         }
@@ -830,22 +1009,10 @@ namespace FluxPointer
                     graphics.DrawEllipse(glowPen, -radius, -radius, radius * 2.0f, radius * 2.0f);
             }
 
-            using (Pen shell = new Pen(Hsl(hue, saturation, 0.73f, 0.94f * visibility), 1.8f))
-            using (Pen inner = new Pen(Hsl(hue + GetHueSpread(), saturation, 0.78f,
-                0.78f * visibility), 1.1f))
-            {
-                graphics.DrawArc(shell, -19.0f * pulse, -19.0f * pulse, 38.0f * pulse,
-                    38.0f * pulse, -38.0f, 238.0f);
-                graphics.DrawArc(inner, -13.0f * pulse, -13.0f * pulse, 26.0f * pulse,
-                    26.0f * pulse, 145.0f, 160.0f);
-            }
             graphics.Restore(saved);
 
+            DrawSkinCore(graphics, x, y, hue, saturation, visibility, pulse, now);
             DrawSkinOrbit(graphics, x, y, hue, saturation, visibility, now);
-
-            float diamondSize = 4.2f + clickFlash * 4.5f;
-            DrawStar(graphics, x, y, diamondSize, (float)(now * 0.003),
-                Hsl(hue + 35.0f, saturation, 0.80f, 0.96f * visibility));
 
             if (clickFlash > 0.0f)
             {
@@ -856,6 +1023,130 @@ namespace FluxPointer
                     graphics.DrawEllipse(flash, x - flashRadius, y - flashRadius,
                         flashRadius * 2.0f, flashRadius * 2.0f);
             }
+        }
+
+        private void DrawSkinCore(Graphics graphics, float x, float y, float hue,
+            float saturation, float visibility, float pulse, long now)
+        {
+            if (skin == FluxSkin.AcidGhost)
+            {
+                using (Pen broken = new Pen(Hsl(hue, saturation, 0.75f,
+                    0.94f * visibility), 2.1f))
+                using (Pen bubble = new Pen(Hsl(hue + 16.0f, saturation, 0.84f,
+                    0.72f * visibility), 1.0f))
+                using (SolidBrush nucleus = new SolidBrush(Hsl(hue + 10.0f, saturation,
+                    0.82f, 0.90f * visibility)))
+                {
+                    broken.DashPattern = new float[] { 4.0f, 2.0f, 1.0f, 3.0f };
+                    graphics.DrawArc(broken, x - 20.0f * pulse, y - 20.0f * pulse,
+                        40.0f * pulse, 40.0f * pulse, (float)(-now * 0.08 % 360.0), 285.0f);
+                    graphics.DrawEllipse(bubble, x - 10.5f, y - 10.5f, 21.0f, 21.0f);
+                    graphics.FillEllipse(nucleus, x - 3.0f, y - 3.0f, 6.0f, 6.0f);
+                    graphics.FillEllipse(nucleus, x + 8.0f, y - 6.0f, 2.5f, 2.5f);
+                    graphics.FillEllipse(nucleus, x - 9.0f, y + 5.0f, 2.0f, 2.0f);
+                }
+                return;
+            }
+
+            if (skin == FluxSkin.SolarFlare)
+            {
+                GraphicsState saved = graphics.Save();
+                graphics.TranslateTransform(x, y);
+                graphics.RotateTransform((float)(now * 0.045 % 360.0));
+                using (Pen rays = new Pen(Hsl(hue + 20.0f, saturation, 0.78f,
+                    0.88f * visibility), 1.7f))
+                using (SolidBrush corona = new SolidBrush(Hsl(hue, saturation, 0.58f,
+                    0.24f * visibility)))
+                using (SolidBrush sun = new SolidBrush(Hsl(hue + 28.0f, saturation, 0.82f,
+                    0.98f * visibility)))
+                {
+                    graphics.FillEllipse(corona, -18.0f * pulse, -18.0f * pulse,
+                        36.0f * pulse, 36.0f * pulse);
+                    for (int ray = 0; ray < 8; ray++)
+                    {
+                        double angle = Math.PI * ray / 4.0;
+                        float inner = 15.0f;
+                        float outer = 22.0f + (ray % 2) * 3.0f;
+                        graphics.DrawLine(rays, (float)Math.Cos(angle) * inner,
+                            (float)Math.Sin(angle) * inner, (float)Math.Cos(angle) * outer,
+                            (float)Math.Sin(angle) * outer);
+                    }
+                    float core = 7.0f + clickFlash * 3.0f;
+                    graphics.FillEllipse(sun, -core, -core, core * 2.0f, core * 2.0f);
+                }
+                graphics.Restore(saved);
+                return;
+            }
+
+            if (skin == FluxSkin.IceSignal)
+            {
+                GraphicsState saved = graphics.Save();
+                graphics.TranslateTransform(x, y);
+                graphics.RotateTransform(45.0f + (float)(now * 0.032 % 360.0));
+                using (Pen outer = new Pen(Hsl(hue, saturation, 0.84f,
+                    0.92f * visibility), 1.7f))
+                using (Pen inner = new Pen(Hsl(hue + 24.0f, saturation, 0.90f,
+                    0.72f * visibility), 1.0f))
+                using (SolidBrush crystal = new SolidBrush(Hsl(hue + 15.0f, saturation,
+                    0.86f, 0.90f * visibility)))
+                {
+                    PointF[] large =
+                    {
+                        new PointF(0, -19.0f * pulse), new PointF(19.0f * pulse, 0),
+                        new PointF(0, 19.0f * pulse), new PointF(-19.0f * pulse, 0)
+                    };
+                    PointF[] small =
+                    {
+                        new PointF(0, -11), new PointF(11, 0),
+                        new PointF(0, 11), new PointF(-11, 0)
+                    };
+                    graphics.DrawPolygon(outer, large);
+                    graphics.DrawPolygon(inner, small);
+                    float center = 4.0f + clickFlash * 2.0f;
+                    PointF[] centerDiamond =
+                    {
+                        new PointF(0, -center), new PointF(center, 0),
+                        new PointF(0, center), new PointF(-center, 0)
+                    };
+                    graphics.FillPolygon(crystal, centerDiamond);
+                }
+                graphics.Restore(saved);
+                return;
+            }
+
+            if (skin == FluxSkin.MonoPulse)
+            {
+                using (Pen shadow = new Pen(Color.FromArgb((int)(190 * visibility), 0, 0, 0), 4.0f))
+                using (Pen signal = new Pen(Color.FromArgb((int)(245 * visibility), 255, 255, 255), 1.4f))
+                using (SolidBrush center = new SolidBrush(Color.FromArgb((int)(250 * visibility),
+                    255, 255, 255)))
+                {
+                    float reach = 20.0f * pulse;
+                    graphics.DrawLine(shadow, x - reach, y, x + reach, y);
+                    graphics.DrawLine(shadow, x, y - reach, x, y + reach);
+                    graphics.DrawEllipse(shadow, x - 12.0f, y - 12.0f, 24.0f, 24.0f);
+                    graphics.DrawLine(signal, x - reach, y, x + reach, y);
+                    graphics.DrawLine(signal, x, y - reach, x, y + reach);
+                    graphics.DrawEllipse(signal, x - 12.0f, y - 12.0f, 24.0f, 24.0f);
+                    float side = 4.0f + clickFlash * 3.0f;
+                    graphics.FillRectangle(center, x - side / 2.0f, y - side / 2.0f, side, side);
+                }
+                return;
+            }
+
+            using (Pen shell = new Pen(Hsl(hue, saturation, 0.73f,
+                0.94f * visibility), 1.8f))
+            using (Pen innerRing = new Pen(Hsl(hue + GetHueSpread(), saturation, 0.78f,
+                0.78f * visibility), 1.1f))
+            {
+                graphics.DrawArc(shell, x - 19.0f * pulse, y - 19.0f * pulse,
+                    38.0f * pulse, 38.0f * pulse, -38.0f, 238.0f);
+                graphics.DrawArc(innerRing, x - 13.0f * pulse, y - 13.0f * pulse,
+                    26.0f * pulse, 26.0f * pulse, 145.0f, 160.0f);
+            }
+            float diamondSize = 4.2f + clickFlash * 4.5f;
+            DrawStar(graphics, x, y, diamondSize, (float)(now * 0.003),
+                Hsl(hue + 35.0f, saturation, 0.80f, 0.96f * visibility));
         }
 
         private void DrawSkinOrbit(Graphics graphics, float x, float y, float hue,
@@ -1165,6 +1456,7 @@ namespace FluxPointer
         internal const int WS_EX_TRANSPARENT = 0x00000020;
         internal const int WS_EX_TOOLWINDOW = 0x00000080;
         internal const int WS_EX_NOACTIVATE = 0x08000000;
+        internal const int WS_EX_TOPMOST = 0x00000008;
         internal const int WM_NCHITTEST = 0x0084;
         internal const int WM_MOUSEACTIVATE = 0x0021;
         internal const int WM_INPUT = 0x00FF;
@@ -1182,6 +1474,11 @@ namespace FluxPointer
         internal const ushort RI_MOUSE_RIGHT_BUTTON_DOWN = 0x0004;
         internal const uint SPI_SETCURSORS = 0x0057;
         internal const uint OCR_NORMAL = 32512;
+        internal const uint SWP_NOSIZE = 0x0001;
+        internal const uint SWP_NOMOVE = 0x0002;
+        internal const uint SWP_NOACTIVATE = 0x0010;
+        internal const uint SWP_SHOWWINDOW = 0x0040;
+        internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct POINT
@@ -1309,5 +1606,10 @@ namespace FluxPointer
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SystemParametersInfo(uint action, uint parameter,
             IntPtr data, uint updateFlags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetWindowPos(IntPtr windowHandle, IntPtr insertAfter,
+            int x, int y, int width, int height, uint flags);
     }
 }

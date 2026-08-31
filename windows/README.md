@@ -22,6 +22,8 @@ from this repository.
 - Left-click creates a starburst and rotating shockwave.
 - Right-click creates a larger alternate rupture.
 - The overlay is click-through, so it does not interfere with normal input.
+- The overlay reasserts its always-on-top position when you switch browser tabs
+  or bring another ordinary window forward.
 - The normal Windows cursor is hidden by default so the Flux field becomes the
   pointer. You can restore it from the tray menu at any time.
 - After three seconds without movement or clicks, the Flux pointer fades out
@@ -33,10 +35,10 @@ from this repository.
 Open **Skins** from the tray menu and choose:
 
 - **Spectrum Drift** — full-spectrum color cycling with an elliptical orbit.
-- **Acid Ghost** — toxic green tones with broken circular arcs.
-- **Solar Flare** — amber and red light with radiating sun spikes.
-- **Ice Signal** — cyan-blue particles with rotating diamond geometry.
-- **Mono Pulse** — a minimal white signal with concentric dotted rings.
+- **Acid Ghost** — toxic green bubbles, spectral crescents, and broken arcs.
+- **Solar Flare** — ember streaks, triangular sparks, and a radiating sun core.
+- **Ice Signal** — diamond shards, snowflake bursts, and crystalline geometry.
+- **Mono Pulse** — square pixels, cross-shaped bursts, and a high-contrast crosshair.
 
 Your choice is remembered the next time Flux Pointer starts.
 
