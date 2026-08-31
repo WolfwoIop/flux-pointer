@@ -9,7 +9,9 @@ animation.
 Want the effect outside the browser? Download `FluxPointer.exe` from the latest
 GitHub release. It adds the animated Flux halo, particle trail, and click
 rupture across the Windows desktop and ordinary apps while hiding the normal
-Windows cursor. No installer or administrator access is required.
+Windows cursor. The Flux pointer fades away after a few seconds of inactivity
+and wakes as soon as you move again. No installer or administrator access is
+required.
 
 See [`windows/README.md`](windows/README.md) for controls, compatibility, source,
 and build instructions.
