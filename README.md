@@ -11,7 +11,9 @@ GitHub release. It adds the animated Flux halo, particle trail, and click
 rupture across the Windows desktop and ordinary apps while hiding the normal
 Windows cursor. The Flux pointer fades away after a few seconds of inactivity
 and wakes as soon as you move again. Its tray menu includes five selectable
-skins and remembers your choice. No installer or administrator access is required.
+skins with distinct shapes, trails, and click bursts, and remembers your choice.
+The overlay stays above newly focused browser tabs and ordinary windows. No
+installer or administrator access is required.
 
 See [`windows/README.md`](windows/README.md) for controls, compatibility, source,
 and build instructions.
