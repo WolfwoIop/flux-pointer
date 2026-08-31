@@ -16,8 +16,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Flux Pointer")]
 [assembly: AssemblyProduct("Flux Pointer for Windows")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 WolfwoIop")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace FluxPointer
 {
@@ -64,22 +64,37 @@ namespace FluxPointer
         }
     }
 
+    internal enum FluxSkin
+    {
+        SpectrumDrift = 0,
+        AcidGhost = 1,
+        SolarFlare = 2,
+        IceSignal = 3,
+        MonoPulse = 4
+    }
+
     internal sealed class FluxApplicationContext : ApplicationContext
     {
         private const string StartupKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string StartupValueName = "FluxPointer";
+        private const string SettingsKeyPath = @"Software\FluxPointer";
+        private const string SkinValueName = "Skin";
 
         private readonly FluxOverlay overlay;
         private readonly NotifyIcon trayIcon;
         private readonly ToolStripMenuItem enabledItem;
         private readonly ToolStripMenuItem hideCursorItem;
         private readonly ToolStripMenuItem startupItem;
+        private readonly Dictionary<FluxSkin, ToolStripMenuItem> skinItems;
         private Icon ownedIcon;
 
         public FluxApplicationContext()
         {
             overlay = new FluxOverlay();
+            FluxSkin selectedSkin = LoadSkin();
+            overlay.Skin = selectedSkin;
             overlay.Show();
+            skinItems = new Dictionary<FluxSkin, ToolStripMenuItem>();
 
             enabledItem = new ToolStripMenuItem("Effects enabled", null, ToggleEffects);
             enabledItem.Checked = true;
@@ -96,6 +111,13 @@ namespace FluxPointer
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add(enabledItem);
             menu.Items.Add(hideCursorItem);
+            ToolStripMenuItem skinMenu = new ToolStripMenuItem("Skins");
+            AddSkinItem(skinMenu, "Spectrum Drift", FluxSkin.SpectrumDrift, selectedSkin);
+            AddSkinItem(skinMenu, "Acid Ghost", FluxSkin.AcidGhost, selectedSkin);
+            AddSkinItem(skinMenu, "Solar Flare", FluxSkin.SolarFlare, selectedSkin);
+            AddSkinItem(skinMenu, "Ice Signal", FluxSkin.IceSignal, selectedSkin);
+            AddSkinItem(skinMenu, "Mono Pulse", FluxSkin.MonoPulse, selectedSkin);
+            menu.Items.Add(skinMenu);
             menu.Items.Add(startupItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Open web demo", null, OpenDemo));
@@ -109,11 +131,73 @@ namespace FluxPointer
             trayIcon.Text = "Flux Pointer — effects enabled";
             trayIcon.ContextMenuStrip = menu;
             trayIcon.Visible = true;
-            trayIcon.DoubleClick += ToggleEffects;
+            trayIcon.MouseClick += delegate(object sender, MouseEventArgs eventArgs)
+            {
+                if (eventArgs.Button == MouseButtons.Left)
+                    menu.Show(Cursor.Position);
+            };
             trayIcon.BalloonTipTitle = "Flux Pointer is active";
-            trayIcon.BalloonTipText = "Move and click to disturb the field. Right-click the tray icon for controls.";
+            trayIcon.BalloonTipText = "Move and click to disturb the field. Click the tray icon to choose a skin.";
             trayIcon.BalloonTipIcon = ToolTipIcon.None;
             trayIcon.ShowBalloonTip(2600);
+        }
+
+        private void AddSkinItem(ToolStripMenuItem parent, string label, FluxSkin skin,
+            FluxSkin selectedSkin)
+        {
+            ToolStripMenuItem item = new ToolStripMenuItem(label);
+            item.Tag = skin;
+            item.Checked = skin == selectedSkin;
+            item.Click += SelectSkin;
+            skinItems.Add(skin, item);
+            parent.DropDownItems.Add(item);
+        }
+
+        private void SelectSkin(object sender, EventArgs eventArgs)
+        {
+            ToolStripMenuItem selectedItem = sender as ToolStripMenuItem;
+            if (selectedItem == null || !(selectedItem.Tag is FluxSkin))
+                return;
+
+            FluxSkin skin = (FluxSkin)selectedItem.Tag;
+            overlay.Skin = skin;
+            foreach (KeyValuePair<FluxSkin, ToolStripMenuItem> item in skinItems)
+                item.Value.Checked = item.Key == skin;
+            SaveSkin(skin);
+        }
+
+        private static FluxSkin LoadSkin()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(SettingsKeyPath, false))
+                {
+                    object value = key == null ? null : key.GetValue(SkinValueName);
+                    int number;
+                    if (value != null && int.TryParse(value.ToString(), out number) &&
+                        Enum.IsDefined(typeof(FluxSkin), number))
+                        return (FluxSkin)number;
+                }
+            }
+            catch
+            {
+            }
+            return FluxSkin.SpectrumDrift;
+        }
+
+        private static void SaveSkin(FluxSkin skin)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(SettingsKeyPath))
+                {
+                    if (key != null)
+                        key.SetValue(SkinValueName, (int)skin, RegistryValueKind.DWord);
+                }
+            }
+            catch
+            {
+            }
         }
 
         private void ToggleEffects(object sender, EventArgs eventArgs)
@@ -206,7 +290,7 @@ namespace FluxPointer
                 "A living pointer field shaped by speed, direction, time, and clicks.\n\n" +
                 "The normal Windows cursor is hidden while the Flux field is active.\n\n" +
                 "No network connection, installer, or administrator access is required.\n\n" +
-                "Version 1.2.0",
+                "Version 1.3.0",
                 "About Flux Pointer", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -287,6 +371,7 @@ namespace FluxPointer
         private bool pendingLeftClick;
         private bool pendingRightClick;
         private bool effectsEnabled;
+        private FluxSkin skin;
         private float clickFlash;
         private float pointerOpacity;
         private long lastActivityTime;
@@ -312,6 +397,7 @@ namespace FluxPointer
             eased = target;
 
             effectsEnabled = true;
+            skin = FluxSkin.SpectrumDrift;
             pointerOpacity = 1.0f;
             lastActivityTime = clock.ElapsedMilliseconds;
             frameTimer = new System.Windows.Forms.Timer();
@@ -342,6 +428,19 @@ namespace FluxPointer
                     ripples.Clear();
                     Hide();
                 }
+            }
+        }
+
+        public FluxSkin Skin
+        {
+            get { return skin; }
+            set
+            {
+                skin = value;
+                pointerOpacity = 1.0f;
+                lastActivityTime = clock.ElapsedMilliseconds;
+                if (effectsEnabled && !Visible)
+                    Show();
             }
         }
 
@@ -480,7 +579,8 @@ namespace FluxPointer
         private void AddTrail(PointF from, PointF to, float dx, float dy, float distance, long now)
         {
             int amount = Math.Min(7, Math.Max(1, (int)(distance / 11.0f)));
-            float hueBase = (float)((now * 0.045) % 360.0);
+            float hueBase = GetBaseHue(now);
+            float hueSpread = GetHueSpread();
 
             for (int index = 0; index < amount; index++)
             {
@@ -499,7 +599,7 @@ namespace FluxPointer
                     Life = life,
                     MaxLife = life,
                     Size = 1.1f + (float)random.NextDouble() * 2.6f,
-                    Hue = (hueBase + (float)random.NextDouble() * 85.0f) % 360.0f,
+                    Hue = (hueBase + (float)random.NextDouble() * hueSpread) % 360.0f,
                     Rotation = (float)random.NextDouble() * 6.28318f,
                     Burst = false
                 });
@@ -510,7 +610,8 @@ namespace FluxPointer
 
         private void AddBurst(PointF origin, long now, bool alternate)
         {
-            float hueBase = (float)((now * 0.045) % 360.0);
+            float hueBase = GetBaseHue(now);
+            float hueStep = GetBurstHueStep(alternate);
             int count = alternate ? 38 : 30;
 
             for (int index = 0; index < count; index++)
@@ -529,7 +630,7 @@ namespace FluxPointer
                     Life = life,
                     MaxLife = life,
                     Size = 1.4f + (float)random.NextDouble() * 3.0f,
-                    Hue = (hueBase + index * (alternate ? 7.5f : 4.8f)) % 360.0f,
+                    Hue = (hueBase + index * hueStep) % 360.0f,
                     Rotation = (float)angle,
                     Burst = true
                 });
@@ -646,6 +747,7 @@ namespace FluxPointer
 
         private void DrawParticles(Graphics graphics, Rectangle bounds)
         {
+            float saturation = GetSkinSaturation();
             for (int index = 0; index < particles.Count; index++)
             {
                 Particle particle = particles[index];
@@ -656,13 +758,13 @@ namespace FluxPointer
                 if (particle.Burst)
                 {
                     DrawStar(graphics, x, y, particle.Size, particle.Rotation,
-                        Hsl(particle.Hue, 1.0f, 0.72f, alpha * 0.95f));
+                        Hsl(particle.Hue, saturation, 0.72f, alpha * 0.95f));
                 }
                 else
                 {
-                    using (Pen line = new Pen(Hsl(particle.Hue, 1.0f, 0.68f, alpha * 0.50f),
+                    using (Pen line = new Pen(Hsl(particle.Hue, saturation, 0.68f, alpha * 0.50f),
                         Math.Max(0.8f, particle.Size)))
-                    using (SolidBrush dot = new SolidBrush(Hsl(particle.Hue, 1.0f, 0.78f, alpha)))
+                    using (SolidBrush dot = new SolidBrush(Hsl(particle.Hue, saturation, 0.78f, alpha)))
                     {
                         line.StartCap = LineCap.Round;
                         line.EndCap = LineCap.Round;
@@ -677,6 +779,7 @@ namespace FluxPointer
 
         private void DrawRipples(Graphics graphics, Rectangle bounds, long now)
         {
+            float saturation = GetSkinSaturation();
             for (int index = 0; index < ripples.Count; index++)
             {
                 Ripple ripple = ripples[index];
@@ -684,7 +787,8 @@ namespace FluxPointer
                 float radius = 14.0f + progress * (ripple.Alternate ? 122.0f : 92.0f);
                 float alpha = (1.0f - progress) * 0.80f;
 
-                using (Pen pen = new Pen(Hsl(ripple.Hue + progress * 75.0f, 1.0f, 0.72f, alpha),
+                using (Pen pen = new Pen(Hsl(ripple.Hue + progress * GetHueSpread(),
+                    saturation, 0.72f, alpha),
                     Math.Max(1.0f, 2.2f - progress)))
                 {
                     pen.DashStyle = DashStyle.Custom;
@@ -708,7 +812,8 @@ namespace FluxPointer
             float y = eased.Y - bounds.Top;
             float speed = (float)Math.Sqrt(dx * dx + dy * dy);
             float direction = speed > 0.2f ? (float)(Math.Atan2(dy, dx) * 180.0 / Math.PI) : 0.0f;
-            float hue = (float)((now * 0.045) % 360.0);
+            float hue = GetBaseHue(now);
+            float saturation = GetSkinSaturation();
             float pulse = 1.0f + (float)Math.Sin(now * 0.0065) * 0.07f;
             float stretch = 1.0f + Math.Min(speed / 75.0f, 0.48f);
 
@@ -720,13 +825,14 @@ namespace FluxPointer
             for (int glow = 4; glow >= 1; glow--)
             {
                 float radius = (17.0f + glow * 3.4f) * pulse;
-                using (Pen glowPen = new Pen(Hsl(hue + glow * 8.0f, 1.0f, 0.66f,
+                using (Pen glowPen = new Pen(Hsl(hue + glow * 8.0f, saturation, 0.66f,
                     0.045f * (5 - glow) * visibility), 2.6f + glow * 1.5f))
                     graphics.DrawEllipse(glowPen, -radius, -radius, radius * 2.0f, radius * 2.0f);
             }
 
-            using (Pen shell = new Pen(Hsl(hue, 1.0f, 0.73f, 0.94f * visibility), 1.8f))
-            using (Pen inner = new Pen(Hsl(hue + 72.0f, 1.0f, 0.78f, 0.78f * visibility), 1.1f))
+            using (Pen shell = new Pen(Hsl(hue, saturation, 0.73f, 0.94f * visibility), 1.8f))
+            using (Pen inner = new Pen(Hsl(hue + GetHueSpread(), saturation, 0.78f,
+                0.78f * visibility), 1.1f))
             {
                 graphics.DrawArc(shell, -19.0f * pulse, -19.0f * pulse, 38.0f * pulse,
                     38.0f * pulse, -38.0f, 238.0f);
@@ -735,32 +841,139 @@ namespace FluxPointer
             }
             graphics.Restore(saved);
 
-            float orbitAngle = (float)(now * 0.12 % 360.0);
-            saved = graphics.Save();
-            graphics.TranslateTransform(x, y);
-            graphics.RotateTransform(orbitAngle);
-            using (Pen orbit = new Pen(Hsl(hue + 155.0f, 1.0f, 0.72f, 0.68f * visibility), 1.1f))
-            {
-                orbit.DashPattern = new float[] { 2.0f, 4.5f };
-                graphics.DrawEllipse(orbit, -27.0f, -15.0f, 54.0f, 30.0f);
-            }
-            using (SolidBrush satellite = new SolidBrush(Hsl(hue + 190.0f, 1.0f, 0.78f, 0.95f * visibility)))
-                graphics.FillEllipse(satellite, 24.0f, -2.2f, 4.4f, 4.4f);
-            graphics.Restore(saved);
+            DrawSkinOrbit(graphics, x, y, hue, saturation, visibility, now);
 
             float diamondSize = 4.2f + clickFlash * 4.5f;
             DrawStar(graphics, x, y, diamondSize, (float)(now * 0.003),
-                Hsl(hue + 35.0f, 1.0f, 0.80f, 0.96f * visibility));
+                Hsl(hue + 35.0f, saturation, 0.80f, 0.96f * visibility));
 
             if (clickFlash > 0.0f)
             {
                 float flashRadius = 9.0f + (1.0f - clickFlash) * 24.0f;
-                using (Pen flash = new Pen(Hsl(hue + 90.0f, 1.0f, 0.82f,
+                using (Pen flash = new Pen(Hsl(hue + 90.0f, saturation, 0.82f,
                     clickFlash * 0.9f * visibility),
                     1.0f + clickFlash * 2.5f))
                     graphics.DrawEllipse(flash, x - flashRadius, y - flashRadius,
                         flashRadius * 2.0f, flashRadius * 2.0f);
             }
+        }
+
+        private void DrawSkinOrbit(Graphics graphics, float x, float y, float hue,
+            float saturation, float visibility, long now)
+        {
+            GraphicsState saved = graphics.Save();
+            graphics.TranslateTransform(x, y);
+            float rotation = skin == FluxSkin.AcidGhost
+                ? (float)(-now * 0.085 % 360.0)
+                : (float)(now * 0.10 % 360.0);
+            graphics.RotateTransform(rotation);
+
+            using (Pen orbit = new Pen(Hsl(hue + GetHueSpread(), saturation, 0.74f,
+                0.72f * visibility), 1.15f))
+            using (SolidBrush satellite = new SolidBrush(Hsl(hue + GetHueSpread() * 1.4f,
+                saturation, 0.80f, 0.96f * visibility)))
+            {
+                if (skin == FluxSkin.AcidGhost)
+                {
+                    orbit.DashPattern = new float[] { 1.0f, 3.2f };
+                    graphics.DrawArc(orbit, -25.0f, -25.0f, 50.0f, 50.0f, -25.0f, 128.0f);
+                    graphics.DrawArc(orbit, -25.0f, -25.0f, 50.0f, 50.0f, 160.0f, 112.0f);
+                    graphics.FillEllipse(satellite, -2.4f, -28.0f, 4.8f, 4.8f);
+                }
+                else if (skin == FluxSkin.SolarFlare)
+                {
+                    orbit.DashStyle = DashStyle.Solid;
+                    graphics.DrawEllipse(orbit, -22.0f, -22.0f, 44.0f, 44.0f);
+                    for (int ray = 0; ray < 10; ray++)
+                    {
+                        double angle = Math.PI * 2.0 * ray / 10.0;
+                        float innerRadius = 25.0f;
+                        float outerRadius = 30.0f + (ray % 2) * 4.0f;
+                        graphics.DrawLine(orbit,
+                            (float)Math.Cos(angle) * innerRadius,
+                            (float)Math.Sin(angle) * innerRadius,
+                            (float)Math.Cos(angle) * outerRadius,
+                            (float)Math.Sin(angle) * outerRadius);
+                    }
+                    graphics.FillEllipse(satellite, 27.0f, -2.5f, 5.0f, 5.0f);
+                }
+                else if (skin == FluxSkin.IceSignal)
+                {
+                    orbit.DashPattern = new float[] { 3.0f, 3.0f };
+                    PointF[] diamond =
+                    {
+                        new PointF(0, -29), new PointF(29, 0),
+                        new PointF(0, 29), new PointF(-29, 0)
+                    };
+                    graphics.DrawPolygon(orbit, diamond);
+                    graphics.DrawRectangle(orbit, -15.0f, -15.0f, 30.0f, 30.0f);
+                    graphics.FillEllipse(satellite, -2.3f, -31.5f, 4.6f, 4.6f);
+                }
+                else if (skin == FluxSkin.MonoPulse)
+                {
+                    orbit.DashPattern = new float[] { 1.0f, 5.0f };
+                    graphics.DrawEllipse(orbit, -25.0f, -25.0f, 50.0f, 50.0f);
+                    graphics.DrawEllipse(orbit, -17.0f, -17.0f, 34.0f, 34.0f);
+                    graphics.FillEllipse(satellite, 22.0f, -2.0f, 4.0f, 4.0f);
+                }
+                else
+                {
+                    orbit.DashPattern = new float[] { 2.0f, 4.5f };
+                    graphics.DrawEllipse(orbit, -27.0f, -15.0f, 54.0f, 30.0f);
+                    graphics.FillEllipse(satellite, 24.0f, -2.2f, 4.4f, 4.4f);
+                }
+            }
+            graphics.Restore(saved);
+        }
+
+        private float GetBaseHue(long now)
+        {
+            if (skin == FluxSkin.AcidGhost)
+                return 82.0f + (float)Math.Sin(now * 0.0011) * 14.0f;
+            if (skin == FluxSkin.SolarFlare)
+                return 18.0f + (float)Math.Sin(now * 0.0010) * 18.0f;
+            if (skin == FluxSkin.IceSignal)
+                return 198.0f + (float)Math.Sin(now * 0.0009) * 18.0f;
+            if (skin == FluxSkin.MonoPulse)
+                return 0.0f;
+            return (float)((now * 0.045) % 360.0);
+        }
+
+        private float GetSkinSaturation()
+        {
+            if (skin == FluxSkin.MonoPulse)
+                return 0.0f;
+            if (skin == FluxSkin.IceSignal)
+                return 0.88f;
+            if (skin == FluxSkin.AcidGhost)
+                return 0.96f;
+            return 1.0f;
+        }
+
+        private float GetHueSpread()
+        {
+            if (skin == FluxSkin.AcidGhost)
+                return 20.0f;
+            if (skin == FluxSkin.SolarFlare)
+                return 34.0f;
+            if (skin == FluxSkin.IceSignal)
+                return 28.0f;
+            if (skin == FluxSkin.MonoPulse)
+                return 0.0f;
+            return 115.0f;
+        }
+
+        private float GetBurstHueStep(bool alternate)
+        {
+            if (skin == FluxSkin.AcidGhost)
+                return alternate ? 1.1f : 0.8f;
+            if (skin == FluxSkin.SolarFlare)
+                return alternate ? 1.8f : 1.3f;
+            if (skin == FluxSkin.IceSignal)
+                return alternate ? 1.5f : 1.1f;
+            if (skin == FluxSkin.MonoPulse)
+                return 0.0f;
+            return alternate ? 7.5f : 4.8f;
         }
 
         private static void DrawStar(Graphics graphics, float x, float y, float size,

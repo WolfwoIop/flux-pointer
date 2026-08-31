@@ -8,8 +8,8 @@ ordinary apps.
 
 1. Download `FluxPointer.exe` from the latest GitHub release.
 2. Double-click it. No installation or administrator access is required.
-3. Right-click the colorful Flux icon in the system tray to pause the effects,
-   start Flux Pointer with Windows, open the web demo, or exit.
+3. Click the colorful Flux icon in the system tray to choose a skin, pause the
+   effects, start Flux Pointer with Windows, open the web demo, or exit.
 
 Windows SmartScreen may show a warning because this free download is not
 digitally signed. Choose **More info**, then **Run anyway** if you downloaded it
@@ -27,6 +27,18 @@ from this repository.
 - After three seconds without movement or clicks, the Flux pointer fades out
   completely. Moving or clicking wakes it immediately.
 - It does not use the network, collect data, or require admin rights.
+
+## Skins
+
+Open **Skins** from the tray menu and choose:
+
+- **Spectrum Drift** — full-spectrum color cycling with an elliptical orbit.
+- **Acid Ghost** — toxic green tones with broken circular arcs.
+- **Solar Flare** — amber and red light with radiating sun spikes.
+- **Ice Signal** — cyan-blue particles with rotating diamond geometry.
+- **Mono Pulse** — a minimal white signal with concentric dotted rings.
+
+Your choice is remembered the next time Flux Pointer starts.
 
 Pausing or exiting Flux Pointer automatically restores the normal Windows
 cursor. Windows secure screens and some exclusive fullscreen games do not allow
