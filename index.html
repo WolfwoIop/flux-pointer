@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Flux Pointer — a living, shape-shifting cursor with chromatic particles."
+    />
+    <title>Flux Pointer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="demo-page">
+      <div class="glow glow-purple" aria-hidden="true"></div>
+      <div class="glow glow-green" aria-hidden="true"></div>
+
+      <header class="site-header">
+        <a class="brand" href="#top" aria-label="Flux Pointer home">
+          <span class="brand-mark" aria-hidden="true">
+            <i></i><i></i><i></i>
+          </span>
+          FLUX/POINTER
+        </a>
+        <div class="header-index">EXPERIMENT 001</div>
+        <div class="live-pill">LIVE INPUT</div>
+      </header>
+
+      <section id="top" class="hero">
+        <div>
+          <p class="eyebrow">
+            <span>KINETIC INTERFACE STUDY</span>
+            <span>2026—∞</span>
+          </p>
+          <h1>
+            NEVER THE SAME
+            <span>TWICE.</span>
+          </h1>
+          <p class="lede">
+            A living pointer shaped by speed, direction and time. Every move
+            leaves a different signature. Every click fractures the moment.
+          </p>
+          <div class="hero-actions">
+            <button class="rupture-button" type="button">
+              <span>CLICK TO RUPTURE</span>
+              <span aria-hidden="true">↗</span>
+            </button>
+            <a href="#gestures" class="text-link">
+              TEST THE GESTURES <span aria-hidden="true">↓</span>
+            </a>
+          </div>
+        </div>
+
+        <aside class="specimen" data-cursor="hover">
+          <div class="specimen-meta">
+            <span>LIVE SPECIMEN</span>
+            <span>FP—001</span>
+          </div>
+          <div class="specimen-stage" aria-hidden="true">
+            <span class="demo-orbit"></span>
+            <span class="demo-core"></span>
+            <span class="axis axis-x"></span>
+            <span class="axis axis-y"></span>
+            <span class="coordinate coordinate-a">X 124.08</span>
+            <span class="coordinate coordinate-b">Y 086.14</span>
+          </div>
+          <div class="signal-row">
+            <span>SIGNAL STATE</span>
+            <strong id="signal-state">QUIET</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section id="gestures" class="gestures">
+        <div class="section-heading">
+          <p>THREE WAYS TO DISTURB THE FIELD</p>
+          <span>MOVE / HOVER / PRESS</span>
+        </div>
+        <div class="gesture-grid">
+          <article class="gesture-card" data-cursor="hover">
+            <span class="gesture-number">01</span>
+            <div>
+              <h2>DRIFT</h2>
+              <p>
+                Move slowly. The orbit relaxes while color continues to travel.
+              </p>
+            </div>
+            <span class="gesture-glyph" aria-hidden="true"></span>
+          </article>
+          <article class="gesture-card" data-cursor="hover">
+            <span class="gesture-number">02</span>
+            <div>
+              <h2>CHASE</h2>
+              <p>
+                Accelerate. The core stretches and sheds a brighter wake.
+              </p>
+            </div>
+            <span class="gesture-glyph" aria-hidden="true"></span>
+          </article>
+          <article class="gesture-card" data-cursor="hover">
+            <span class="gesture-number">03</span>
+            <div>
+              <h2>RUPTURE</h2>
+              <p>
+                Click anywhere. A chromatic shockwave breaks into tiny stars.
+              </p>
+            </div>
+            <span class="gesture-glyph" aria-hidden="true"></span>
+          </article>
+        </div>
+      </section>
+
+      <footer class="site-footer">
+        <span>DESIGNED TO STAY UNPREDICTABLE</span>
+        <span>FINE POINTER / 60 FPS / ZERO DEPENDENCIES</span>
+      </footer>
+    </main>
+
+    <script type="module">
+      import { initFluxCursor } from './cursor.js';
+
+      initFluxCursor();
+
+      const button = document.querySelector('.rupture-button');
+      const signal = document.querySelector('#signal-state');
+      button.addEventListener('click', () => {
+        signal.textContent = signal.textContent === 'QUIET' ? 'ALIVE' : 'QUIET';
+      });
+    </script>
+  </body>
+</html>
