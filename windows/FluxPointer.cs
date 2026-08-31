@@ -16,8 +16,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Flux Pointer")]
 [assembly: AssemblyProduct("Flux Pointer for Windows")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 WolfwoIop")]
-[assembly: AssemblyVersion("1.4.0.0")]
-[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
 
 namespace FluxPointer
 {
@@ -39,7 +39,7 @@ namespace FluxPointer
                 }
 
                 SystemCursorController.Restore();
-                NativeMethods.SetProcessDPIAware();
+                EnableBestDpiAwareness();
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -62,6 +62,21 @@ namespace FluxPointer
                 GC.KeepAlive(mutex);
             }
         }
+
+        private static void EnableBestDpiAwareness()
+        {
+            try
+            {
+                if (NativeMethods.SetProcessDpiAwarenessContext(
+                    NativeMethods.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+                    return;
+            }
+            catch (EntryPointNotFoundException)
+            {
+            }
+
+            NativeMethods.SetProcessDPIAware();
+        }
     }
 
     internal enum FluxSkin
@@ -73,83 +88,154 @@ namespace FluxPointer
         MonoPulse = 4
     }
 
+    internal enum FluxIntensity
+    {
+        Calm = 0,
+        Balanced = 1,
+        Vivid = 2
+    }
+
     internal sealed class FluxApplicationContext : ApplicationContext
     {
         private const string StartupKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string StartupValueName = "FluxPointer";
         private const string SettingsKeyPath = @"Software\FluxPointer";
         private const string SkinValueName = "Skin";
+        private const string IntensityValueName = "Intensity";
+        private const string HideCursorValueName = "HideNormalCursor";
+        private const string WelcomeShownValueName = "WelcomeShown";
 
         private readonly FluxOverlay overlay;
         private readonly NotifyIcon trayIcon;
+        private readonly ContextMenuStrip trayMenu;
+        private readonly ToolStripLabel statusItem;
         private readonly ToolStripMenuItem enabledItem;
         private readonly ToolStripMenuItem hideCursorItem;
         private readonly ToolStripMenuItem startupItem;
         private readonly Dictionary<FluxSkin, ToolStripMenuItem> skinItems;
+        private readonly Dictionary<FluxIntensity, ToolStripMenuItem> intensityItems;
+        private readonly List<Image> ownedMenuImages;
         private Icon ownedIcon;
 
         public FluxApplicationContext()
         {
             overlay = new FluxOverlay();
             FluxSkin selectedSkin = LoadSkin();
+            FluxIntensity selectedIntensity = LoadIntensity();
             overlay.Skin = selectedSkin;
+            overlay.Intensity = selectedIntensity;
             overlay.Show();
             skinItems = new Dictionary<FluxSkin, ToolStripMenuItem>();
+            intensityItems = new Dictionary<FluxIntensity, ToolStripMenuItem>();
+            ownedMenuImages = new List<Image>();
 
-            enabledItem = new ToolStripMenuItem("Effects enabled", null, ToggleEffects);
-            enabledItem.Checked = true;
+            statusItem = new ToolStripLabel();
+            statusItem.Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold);
+            statusItem.Padding = new Padding(5, 3, 5, 4);
+
+            enabledItem = new ToolStripMenuItem("Pause effects", null, ToggleEffects);
             enabledItem.CheckOnClick = false;
 
             hideCursorItem = new ToolStripMenuItem("Hide normal Windows cursor", null, ToggleNormalCursor);
-            hideCursorItem.Checked = SystemCursorController.Hide();
+            bool shouldHideCursor = LoadBooleanSetting(HideCursorValueName, true);
+            hideCursorItem.Checked = shouldHideCursor && SystemCursorController.Hide();
             hideCursorItem.CheckOnClick = false;
 
             startupItem = new ToolStripMenuItem("Start with Windows", null, ToggleStartup);
             startupItem.Checked = IsStartupEnabled();
             startupItem.CheckOnClick = false;
 
-            ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add(enabledItem);
-            menu.Items.Add(hideCursorItem);
-            ToolStripMenuItem skinMenu = new ToolStripMenuItem("Skins");
+            trayMenu = new ContextMenuStrip();
+            trayMenu.Renderer = new ToolStripProfessionalRenderer(new FluxColorTable());
+            trayMenu.BackColor = Color.FromArgb(20, 23, 31);
+            trayMenu.ForeColor = Color.FromArgb(242, 245, 255);
+            trayMenu.Font = new Font("Segoe UI", 9.5f);
+            trayMenu.ShowCheckMargin = true;
+            trayMenu.ShowImageMargin = true;
+            trayMenu.Padding = new Padding(5);
+            trayMenu.Items.Add(statusItem);
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add(enabledItem);
+            trayMenu.Items.Add(hideCursorItem);
+
+            ToolStripMenuItem skinMenu = new ToolStripMenuItem("Choose skin");
             AddSkinItem(skinMenu, "Spectrum Drift", FluxSkin.SpectrumDrift, selectedSkin);
             AddSkinItem(skinMenu, "Acid Ghost", FluxSkin.AcidGhost, selectedSkin);
             AddSkinItem(skinMenu, "Solar Flare", FluxSkin.SolarFlare, selectedSkin);
             AddSkinItem(skinMenu, "Ice Signal", FluxSkin.IceSignal, selectedSkin);
             AddSkinItem(skinMenu, "Mono Pulse", FluxSkin.MonoPulse, selectedSkin);
-            menu.Items.Add(skinMenu);
-            menu.Items.Add(startupItem);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(new ToolStripMenuItem("Open web demo", null, OpenDemo));
-            menu.Items.Add(new ToolStripMenuItem("About Flux Pointer", null, ShowAbout));
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(new ToolStripMenuItem("Exit", null, ExitApplication));
+            trayMenu.Items.Add(skinMenu);
+
+            ToolStripMenuItem intensityMenu = new ToolStripMenuItem("Visual intensity");
+            AddIntensityItem(intensityMenu, "Calm — best performance", FluxIntensity.Calm,
+                selectedIntensity);
+            AddIntensityItem(intensityMenu, "Balanced", FluxIntensity.Balanced,
+                selectedIntensity);
+            AddIntensityItem(intensityMenu, "Vivid — maximum particles", FluxIntensity.Vivid,
+                selectedIntensity);
+            trayMenu.Items.Add(intensityMenu);
+            trayMenu.Items.Add(startupItem);
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add(new ToolStripMenuItem("Open web demo", null, OpenDemo));
+            trayMenu.Items.Add(new ToolStripMenuItem("About Flux Pointer", null, ShowAbout));
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add(new ToolStripMenuItem("Exit Flux Pointer", null, ExitApplication));
+            trayMenu.Opening += delegate
+            {
+                startupItem.Checked = IsStartupEnabled();
+                UpdateMenuState();
+            };
 
             ownedIcon = CreateFluxIcon();
             trayIcon = new NotifyIcon();
             trayIcon.Icon = ownedIcon;
-            trayIcon.Text = "Flux Pointer — effects enabled";
-            trayIcon.ContextMenuStrip = menu;
+            trayIcon.ContextMenuStrip = trayMenu;
             trayIcon.Visible = true;
             trayIcon.MouseClick += delegate(object sender, MouseEventArgs eventArgs)
             {
                 if (eventArgs.Button == MouseButtons.Left)
-                    menu.Show(Cursor.Position);
+                    trayMenu.Show(Cursor.Position);
             };
+            trayIcon.MouseDoubleClick += delegate(object sender, MouseEventArgs eventArgs)
+            {
+                if (eventArgs.Button == MouseButtons.Left)
+                    ToggleEffects(sender, EventArgs.Empty);
+            };
+            UpdateMenuState();
+
             trayIcon.BalloonTipTitle = "Flux Pointer is active";
-            trayIcon.BalloonTipText = "Move and click to disturb the field. Click the tray icon to choose a skin.";
+            trayIcon.BalloonTipText = "Move and click to disturb the field. Open the tray icon to choose a skin and intensity.";
             trayIcon.BalloonTipIcon = ToolTipIcon.None;
-            trayIcon.ShowBalloonTip(2600);
+            if (!LoadBooleanSetting(WelcomeShownValueName, false))
+            {
+                trayIcon.ShowBalloonTip(3000);
+                SaveBooleanSetting(WelcomeShownValueName, true);
+            }
+
+            SystemEvents.SessionSwitch += OnSessionSwitch;
         }
 
         private void AddSkinItem(ToolStripMenuItem parent, string label, FluxSkin skin,
             FluxSkin selectedSkin)
         {
-            ToolStripMenuItem item = new ToolStripMenuItem(label);
+            Image preview = CreateSkinPreview(skin);
+            ownedMenuImages.Add(preview);
+            ToolStripMenuItem item = new ToolStripMenuItem(label, preview);
             item.Tag = skin;
             item.Checked = skin == selectedSkin;
             item.Click += SelectSkin;
             skinItems.Add(skin, item);
+            parent.DropDownItems.Add(item);
+        }
+
+        private void AddIntensityItem(ToolStripMenuItem parent, string label,
+            FluxIntensity intensity, FluxIntensity selectedIntensity)
+        {
+            ToolStripMenuItem item = new ToolStripMenuItem(label);
+            item.Tag = intensity;
+            item.Checked = intensity == selectedIntensity;
+            item.Click += SelectIntensity;
+            intensityItems.Add(intensity, item);
             parent.DropDownItems.Add(item);
         }
 
@@ -164,6 +250,21 @@ namespace FluxPointer
             foreach (KeyValuePair<FluxSkin, ToolStripMenuItem> item in skinItems)
                 item.Value.Checked = item.Key == skin;
             SaveSkin(skin);
+            UpdateMenuState();
+        }
+
+        private void SelectIntensity(object sender, EventArgs eventArgs)
+        {
+            ToolStripMenuItem selectedItem = sender as ToolStripMenuItem;
+            if (selectedItem == null || !(selectedItem.Tag is FluxIntensity))
+                return;
+
+            FluxIntensity intensity = (FluxIntensity)selectedItem.Tag;
+            overlay.Intensity = intensity;
+            foreach (KeyValuePair<FluxIntensity, ToolStripMenuItem> item in intensityItems)
+                item.Value.Checked = item.Key == intensity;
+            SaveIntegerSetting(IntensityValueName, (int)intensity);
+            UpdateMenuState();
         }
 
         private static FluxSkin LoadSkin()
@@ -187,12 +288,59 @@ namespace FluxPointer
 
         private static void SaveSkin(FluxSkin skin)
         {
+            SaveIntegerSetting(SkinValueName, (int)skin);
+        }
+
+        private static FluxIntensity LoadIntensity()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(SettingsKeyPath, false))
+                {
+                    object value = key == null ? null : key.GetValue(IntensityValueName);
+                    int number;
+                    if (value != null && int.TryParse(value.ToString(), out number) &&
+                        Enum.IsDefined(typeof(FluxIntensity), number))
+                        return (FluxIntensity)number;
+                }
+            }
+            catch
+            {
+            }
+            return FluxIntensity.Balanced;
+        }
+
+        private static bool LoadBooleanSetting(string name, bool defaultValue)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(SettingsKeyPath, false))
+                {
+                    object value = key == null ? null : key.GetValue(name);
+                    int number;
+                    if (value != null && int.TryParse(value.ToString(), out number))
+                        return number != 0;
+                }
+            }
+            catch
+            {
+            }
+            return defaultValue;
+        }
+
+        private static void SaveBooleanSetting(string name, bool value)
+        {
+            SaveIntegerSetting(name, value ? 1 : 0);
+        }
+
+        private static void SaveIntegerSetting(string name, int value)
+        {
             try
             {
                 using (RegistryKey key = Registry.CurrentUser.CreateSubKey(SettingsKeyPath))
                 {
                     if (key != null)
-                        key.SetValue(SkinValueName, (int)skin, RegistryValueKind.DWord);
+                        key.SetValue(name, value, RegistryValueKind.DWord);
                 }
             }
             catch
@@ -200,17 +348,40 @@ namespace FluxPointer
             }
         }
 
+        private void UpdateMenuState()
+        {
+            string skinName = GetSkinName(overlay.Skin);
+            string intensityName = overlay.Intensity.ToString().ToUpperInvariant();
+            statusItem.Text = overlay.EffectsEnabled
+                ? "●  ACTIVE   ·   " + skinName + "   ·   " + intensityName
+                : "○  PAUSED   ·   " + skinName;
+            statusItem.ForeColor = overlay.EffectsEnabled
+                ? Color.FromArgb(117, 243, 221)
+                : Color.FromArgb(164, 170, 187);
+            enabledItem.Text = overlay.EffectsEnabled ? "Pause effects" : "Resume effects";
+            enabledItem.Checked = overlay.EffectsEnabled;
+            trayIcon.Text = overlay.EffectsEnabled
+                ? "Flux Pointer — " + skinName
+                : "Flux Pointer — paused";
+        }
+
+        private static string GetSkinName(FluxSkin value)
+        {
+            if (value == FluxSkin.AcidGhost) return "Acid Ghost";
+            if (value == FluxSkin.SolarFlare) return "Solar Flare";
+            if (value == FluxSkin.IceSignal) return "Ice Signal";
+            if (value == FluxSkin.MonoPulse) return "Mono Pulse";
+            return "Spectrum Drift";
+        }
+
         private void ToggleEffects(object sender, EventArgs eventArgs)
         {
             overlay.EffectsEnabled = !overlay.EffectsEnabled;
-            enabledItem.Checked = overlay.EffectsEnabled;
             if (overlay.EffectsEnabled && hideCursorItem.Checked)
                 hideCursorItem.Checked = SystemCursorController.Hide();
             else
                 SystemCursorController.Restore();
-            trayIcon.Text = overlay.EffectsEnabled
-                ? "Flux Pointer — effects enabled"
-                : "Flux Pointer — effects paused";
+            UpdateMenuState();
         }
 
         private void ToggleNormalCursor(object sender, EventArgs eventArgs)
@@ -222,6 +393,34 @@ namespace FluxPointer
 
             if (!shouldHide || !overlay.EffectsEnabled)
                 SystemCursorController.Restore();
+
+            SaveBooleanSetting(HideCursorValueName, shouldHide);
+            UpdateMenuState();
+        }
+
+        private void OnSessionSwitch(object sender, SessionSwitchEventArgs eventArgs)
+        {
+            if (eventArgs.Reason == SessionSwitchReason.SessionLock ||
+                eventArgs.Reason == SessionSwitchReason.SessionLogoff)
+            {
+                SystemCursorController.Restore();
+                return;
+            }
+
+            if ((eventArgs.Reason == SessionSwitchReason.SessionUnlock ||
+                eventArgs.Reason == SessionSwitchReason.SessionLogon) &&
+                overlay.EffectsEnabled && hideCursorItem.Checked)
+            {
+                if (overlay.IsHandleCreated && !overlay.IsDisposed)
+                {
+                    overlay.BeginInvoke((MethodInvoker)delegate
+                    {
+                        hideCursorItem.Checked = SystemCursorController.Hide();
+                        overlay.Wake();
+                        UpdateMenuState();
+                    });
+                }
+            }
         }
 
         private void ToggleStartup(object sender, EventArgs eventArgs)
@@ -290,7 +489,8 @@ namespace FluxPointer
                 "A living pointer field shaped by speed, direction, time, and clicks.\n\n" +
                 "The normal Windows cursor is hidden while the Flux field is active.\n\n" +
                 "No network connection, installer, or administrator access is required.\n\n" +
-                "Version 1.4.0",
+                "Version 1.5.0\n\n" +
+                "Tip: double-click the tray icon to pause or resume instantly.",
                 "About Flux Pointer", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -306,9 +506,13 @@ namespace FluxPointer
         {
             if (disposing)
             {
+                SystemEvents.SessionSwitch -= OnSessionSwitch;
                 SystemCursorController.Restore();
                 trayIcon.Dispose();
+                trayMenu.Dispose();
                 overlay.Dispose();
+                for (int index = 0; index < ownedMenuImages.Count; index++)
+                    ownedMenuImages[index].Dispose();
                 if (ownedIcon != null)
                 {
                     ownedIcon.Dispose();
@@ -353,11 +557,152 @@ namespace FluxPointer
                 }
             }
         }
+
+        private static Image CreateSkinPreview(FluxSkin skin)
+        {
+            Bitmap bitmap = new Bitmap(22, 22, PixelFormat.Format32bppArgb);
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                graphics.Clear(Color.Transparent);
+                using (SolidBrush backdrop = new SolidBrush(Color.FromArgb(255, 31, 36, 48)))
+                    graphics.FillEllipse(backdrop, 1, 1, 20, 20);
+
+                if (skin == FluxSkin.AcidGhost)
+                {
+                    using (Pen acid = new Pen(Color.FromArgb(235, 188, 255, 58), 1.7f))
+                    {
+                        acid.DashPattern = new float[] { 2.0f, 1.3f };
+                        graphics.DrawArc(acid, 4, 4, 14, 14, -40, 280);
+                    }
+                    using (SolidBrush bubble = new SolidBrush(Color.FromArgb(240, 100, 255, 189)))
+                    {
+                        graphics.FillEllipse(bubble, 8, 8, 6, 6);
+                        graphics.FillEllipse(bubble, 15, 5, 2, 2);
+                    }
+                }
+                else if (skin == FluxSkin.SolarFlare)
+                {
+                    using (Pen ray = new Pen(Color.FromArgb(245, 255, 116, 33), 1.4f))
+                    {
+                        graphics.DrawLine(ray, 11, 2, 11, 6);
+                        graphics.DrawLine(ray, 11, 16, 11, 20);
+                        graphics.DrawLine(ray, 2, 11, 6, 11);
+                        graphics.DrawLine(ray, 16, 11, 20, 11);
+                    }
+                    using (SolidBrush sun = new SolidBrush(Color.FromArgb(255, 255, 215, 74)))
+                        graphics.FillEllipse(sun, 6, 6, 10, 10);
+                }
+                else if (skin == FluxSkin.IceSignal)
+                {
+                    using (Pen ice = new Pen(Color.FromArgb(245, 107, 226, 255), 1.5f))
+                    {
+                        PointF[] diamond = { new PointF(11, 3), new PointF(19, 11),
+                            new PointF(11, 19), new PointF(3, 11) };
+                        graphics.DrawPolygon(ice, diamond);
+                        graphics.DrawLine(ice, 7, 7, 15, 15);
+                        graphics.DrawLine(ice, 15, 7, 7, 15);
+                    }
+                }
+                else if (skin == FluxSkin.MonoPulse)
+                {
+                    using (Pen shadow = new Pen(Color.Black, 3.4f))
+                    using (Pen signal = new Pen(Color.White, 1.3f))
+                    {
+                        graphics.DrawLine(shadow, 3, 11, 19, 11);
+                        graphics.DrawLine(shadow, 11, 3, 11, 19);
+                        graphics.DrawLine(signal, 3, 11, 19, 11);
+                        graphics.DrawLine(signal, 11, 3, 11, 19);
+                    }
+                }
+                else
+                {
+                    using (Pen cyan = new Pen(Color.FromArgb(245, 54, 238, 255), 1.8f))
+                    using (Pen violet = new Pen(Color.FromArgb(235, 214, 74, 255), 1.4f))
+                    {
+                        graphics.DrawArc(cyan, 3, 3, 16, 16, -55, 220);
+                        graphics.DrawArc(violet, 6, 6, 10, 10, 115, 210);
+                    }
+                }
+            }
+            return bitmap;
+        }
+    }
+
+    internal sealed class FluxColorTable : ProfessionalColorTable
+    {
+        public FluxColorTable()
+        {
+            UseSystemColors = false;
+        }
+
+        public override Color ToolStripDropDownBackground
+        {
+            get { return Color.FromArgb(20, 23, 31); }
+        }
+
+        public override Color ImageMarginGradientBegin
+        {
+            get { return Color.FromArgb(25, 29, 39); }
+        }
+
+        public override Color ImageMarginGradientMiddle
+        {
+            get { return Color.FromArgb(25, 29, 39); }
+        }
+
+        public override Color ImageMarginGradientEnd
+        {
+            get { return Color.FromArgb(25, 29, 39); }
+        }
+
+        public override Color MenuItemSelected
+        {
+            get { return Color.FromArgb(48, 54, 73); }
+        }
+
+        public override Color MenuItemBorder
+        {
+            get { return Color.FromArgb(92, 230, 222); }
+        }
+
+        public override Color MenuBorder
+        {
+            get { return Color.FromArgb(69, 76, 98); }
+        }
+
+        public override Color SeparatorDark
+        {
+            get { return Color.FromArgb(55, 61, 78); }
+        }
+
+        public override Color SeparatorLight
+        {
+            get { return Color.FromArgb(24, 27, 36); }
+        }
+
+        public override Color CheckBackground
+        {
+            get { return Color.FromArgb(44, 192, 180); }
+        }
+
+        public override Color CheckSelectedBackground
+        {
+            get { return Color.FromArgb(61, 219, 207); }
+        }
+
+        public override Color CheckPressedBackground
+        {
+            get { return Color.FromArgb(34, 160, 153); }
+        }
     }
 
     internal sealed class FluxOverlay : Form
     {
-        private const int MaxParticles = 220;
+        private const int ActiveFrameInterval = 16;
+        private const int IdleFrameInterval = 50;
+        private const int SurfaceGridSize = 64;
+        private const long TopMostRefreshMilliseconds = 150;
         private const long IdleDelayMilliseconds = 3000;
         private readonly System.Windows.Forms.Timer frameTimer;
         private readonly Stopwatch clock;
@@ -370,12 +715,17 @@ namespace FluxPointer
         private PointF eased;
         private bool pendingLeftClick;
         private bool pendingRightClick;
+        private bool pendingInputActivity;
         private bool effectsEnabled;
         private FluxSkin skin;
+        private FluxIntensity intensity;
         private float clickFlash;
         private float pointerOpacity;
         private long lastActivityTime;
         private long previousFrameTime;
+        private long nextTopMostRefresh;
+        private Bitmap renderSurface;
+        private Graphics renderGraphics;
 
         public FluxOverlay()
         {
@@ -398,10 +748,11 @@ namespace FluxPointer
 
             effectsEnabled = true;
             skin = FluxSkin.SpectrumDrift;
+            intensity = FluxIntensity.Balanced;
             pointerOpacity = 1.0f;
             lastActivityTime = clock.ElapsedMilliseconds;
             frameTimer = new System.Windows.Forms.Timer();
-            frameTimer.Interval = 16;
+            frameTimer.Interval = ActiveFrameInterval;
             frameTimer.Tick += OnFrame;
             frameTimer.Start();
         }
@@ -420,6 +771,7 @@ namespace FluxPointer
                     pointerOpacity = 1.0f;
                     lastActivityTime = clock.ElapsedMilliseconds;
                     previousFrameTime = 0;
+                    frameTimer.Interval = ActiveFrameInterval;
                     Show();
                     EnsureTopMost();
                 }
@@ -427,6 +779,7 @@ namespace FluxPointer
                 {
                     particles.Clear();
                     ripples.Clear();
+                    frameTimer.Interval = IdleFrameInterval;
                     Hide();
                 }
             }
@@ -437,11 +790,47 @@ namespace FluxPointer
             get { return skin; }
             set
             {
+                bool changed = skin != value;
                 skin = value;
                 pointerOpacity = 1.0f;
                 lastActivityTime = clock.ElapsedMilliseconds;
+                frameTimer.Interval = ActiveFrameInterval;
+                if (changed)
+                {
+                    particles.Clear();
+                    ripples.Clear();
+                    PointF location = ReadCursor();
+                    target = location;
+                    previousTarget = location;
+                    eased = location;
+                    AddBurst(location, lastActivityTime, false);
+                }
                 if (effectsEnabled && !Visible)
                     Show();
+            }
+        }
+
+        public FluxIntensity Intensity
+        {
+            get { return intensity; }
+            set
+            {
+                intensity = value;
+                TrimParticles();
+                Wake();
+            }
+        }
+
+        public void Wake()
+        {
+            lastActivityTime = clock.ElapsedMilliseconds;
+            pointerOpacity = Math.Max(pointerOpacity, 0.35f);
+            if (effectsEnabled)
+            {
+                frameTimer.Interval = ActiveFrameInterval;
+                if (!Visible)
+                    Show();
+                EnsureTopMost();
             }
         }
 
@@ -510,9 +899,16 @@ namespace FluxPointer
                 return;
 
             ushort flags = input.Mouse.ButtonFlags;
+            if (input.Mouse.LastX != 0 || input.Mouse.LastY != 0 || flags != 0)
+            {
+                pendingInputActivity = true;
+                if (effectsEnabled)
+                    frameTimer.Interval = ActiveFrameInterval;
+            }
             if ((flags & NativeMethods.RI_MOUSE_LEFT_BUTTON_DOWN) != 0)
                 pendingLeftClick = true;
-            if ((flags & NativeMethods.RI_MOUSE_RIGHT_BUTTON_DOWN) != 0)
+            if ((flags & (NativeMethods.RI_MOUSE_RIGHT_BUTTON_DOWN |
+                NativeMethods.RI_MOUSE_MIDDLE_BUTTON_DOWN)) != 0)
                 pendingRightClick = true;
         }
 
@@ -531,8 +927,9 @@ namespace FluxPointer
             float dy = target.Y - previousTarget.Y;
             float movement = Distance(previousTarget, target);
 
-            if (movement > 0.6f)
+            if (pendingInputActivity || movement > 0.6f)
                 lastActivityTime = now;
+            pendingInputActivity = false;
 
             if (movement > 1.25f)
                 AddTrail(previousTarget, target, dx, dy, movement, now);
@@ -562,13 +959,20 @@ namespace FluxPointer
             {
                 if (Visible)
                     Hide();
+                frameTimer.Interval = IdleFrameInterval;
                 return;
             }
 
+            if (frameTimer.Interval != ActiveFrameInterval)
+                frameTimer.Interval = ActiveFrameInterval;
             if (!Visible)
                 Show();
 
-            EnsureTopMost();
+            if (now >= nextTopMostRefresh)
+            {
+                EnsureTopMost();
+                nextTopMostRefresh = now + TopMostRefreshMilliseconds;
+            }
 
             Render(now, dx, dy);
         }
@@ -590,6 +994,10 @@ namespace FluxPointer
         private void AddTrail(PointF from, PointF to, float dx, float dy, float distance, long now)
         {
             int amount = Math.Min(7, Math.Max(1, (int)(distance / 11.0f)));
+            if (intensity == FluxIntensity.Calm)
+                amount = Math.Max(1, (amount + 1) / 2);
+            else if (intensity == FluxIntensity.Vivid)
+                amount = Math.Min(10, amount + 2);
             float hueBase = GetBaseHue(now);
             float hueSpread = GetHueSpread();
 
@@ -624,6 +1032,10 @@ namespace FluxPointer
             float hueBase = GetBaseHue(now);
             float hueStep = GetBurstHueStep(alternate);
             int count = alternate ? 38 : 30;
+            if (intensity == FluxIntensity.Calm)
+                count = alternate ? 26 : 20;
+            else if (intensity == FluxIntensity.Vivid)
+                count = alternate ? 48 : 38;
 
             for (int index = 0; index < count; index++)
             {
@@ -662,9 +1074,18 @@ namespace FluxPointer
 
         private void TrimParticles()
         {
-            int overflow = particles.Count - MaxParticles;
+            int overflow = particles.Count - GetMaxParticles();
             if (overflow > 0)
                 particles.RemoveRange(0, overflow);
+        }
+
+        private int GetMaxParticles()
+        {
+            if (intensity == FluxIntensity.Calm)
+                return 140;
+            if (intensity == FluxIntensity.Vivid)
+                return 300;
+            return 220;
         }
 
         private void UpdateParticles(float frameScale)
@@ -703,20 +1124,38 @@ namespace FluxPointer
             if (renderBounds.Width < 1 || renderBounds.Height < 1)
                 return;
 
-            using (Bitmap surface = new Bitmap(renderBounds.Width, renderBounds.Height,
-                PixelFormat.Format32bppArgb))
-            using (Graphics graphics = Graphics.FromImage(surface))
-            {
-                graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                graphics.CompositingMode = CompositingMode.SourceOver;
-                graphics.Clear(Color.Transparent);
+            EnsureRenderSurface(renderBounds.Width, renderBounds.Height);
+            renderGraphics.CompositingMode = CompositingMode.SourceCopy;
+            renderGraphics.Clear(Color.Transparent);
+            renderGraphics.CompositingMode = CompositingMode.SourceOver;
 
-                DrawParticles(graphics, renderBounds);
-                DrawRipples(graphics, renderBounds, now);
-                DrawPointer(graphics, renderBounds, now, dx, dy);
-                Present(surface, renderBounds);
+            DrawParticles(renderGraphics, renderBounds);
+            DrawRipples(renderGraphics, renderBounds, now);
+            DrawPointer(renderGraphics, renderBounds, now, dx, dy);
+            Present(renderSurface, renderBounds);
+        }
+
+        private void EnsureRenderSurface(int width, int height)
+        {
+            if (renderSurface != null && renderSurface.Width == width &&
+                renderSurface.Height == height)
+                return;
+
+            if (renderGraphics != null)
+            {
+                renderGraphics.Dispose();
+                renderGraphics = null;
             }
+            if (renderSurface != null)
+            {
+                renderSurface.Dispose();
+                renderSurface = null;
+            }
+
+            renderSurface = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            renderGraphics = Graphics.FromImage(renderSurface);
+            renderGraphics.SmoothingMode = SmoothingMode.AntiAlias;
+            renderGraphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         }
 
         private Rectangle CalculateRenderBounds()
@@ -748,12 +1187,30 @@ namespace FluxPointer
             }
 
             Rectangle virtualScreen = SystemInformation.VirtualScreen;
-            int left = Math.Max(virtualScreen.Left, (int)Math.Floor(minX));
-            int top = Math.Max(virtualScreen.Top, (int)Math.Floor(minY));
-            int right = Math.Min(virtualScreen.Right, (int)Math.Ceiling(maxX));
-            int bottom = Math.Min(virtualScreen.Bottom, (int)Math.Ceiling(maxY));
+            int left = Math.Max(virtualScreen.Left, AlignDown((int)Math.Floor(minX),
+                SurfaceGridSize));
+            int top = Math.Max(virtualScreen.Top, AlignDown((int)Math.Floor(minY),
+                SurfaceGridSize));
+            int right = Math.Min(virtualScreen.Right, AlignUp((int)Math.Ceiling(maxX),
+                SurfaceGridSize));
+            int bottom = Math.Min(virtualScreen.Bottom, AlignUp((int)Math.Ceiling(maxY),
+                SurfaceGridSize));
 
             return Rectangle.FromLTRB(left, top, Math.Max(left + 1, right), Math.Max(top + 1, bottom));
+        }
+
+        private static int AlignDown(int value, int alignment)
+        {
+            int remainder = value % alignment;
+            if (remainder < 0)
+                remainder += alignment;
+            return value - remainder;
+        }
+
+        private static int AlignUp(int value, int alignment)
+        {
+            int down = AlignDown(value, alignment);
+            return down == value ? value : down + alignment;
         }
 
         private void DrawParticles(Graphics graphics, Rectangle bounds)
@@ -1368,6 +1825,16 @@ namespace FluxPointer
             {
                 frameTimer.Stop();
                 frameTimer.Dispose();
+                if (renderGraphics != null)
+                {
+                    renderGraphics.Dispose();
+                    renderGraphics = null;
+                }
+                if (renderSurface != null)
+                {
+                    renderSurface.Dispose();
+                    renderSurface = null;
+                }
             }
             base.Dispose(disposing);
         }
@@ -1472,6 +1939,7 @@ namespace FluxPointer
         internal const uint RIDEV_INPUTSINK = 0x00000100;
         internal const ushort RI_MOUSE_LEFT_BUTTON_DOWN = 0x0001;
         internal const ushort RI_MOUSE_RIGHT_BUTTON_DOWN = 0x0004;
+        internal const ushort RI_MOUSE_MIDDLE_BUTTON_DOWN = 0x0010;
         internal const uint SPI_SETCURSORS = 0x0057;
         internal const uint OCR_NORMAL = 32512;
         internal const uint SWP_NOSIZE = 0x0001;
@@ -1479,6 +1947,8 @@ namespace FluxPointer
         internal const uint SWP_NOACTIVATE = 0x0010;
         internal const uint SWP_SHOWWINDOW = 0x0040;
         internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        internal static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 =
+            new IntPtr(-4);
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct POINT
@@ -1546,6 +2016,10 @@ namespace FluxPointer
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SetProcessDPIAware();
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
